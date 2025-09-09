@@ -146,7 +146,7 @@ results_table <- results_table %>%
     s_size = s_size,
     n_components = n_components,
     p_sparse = p_sparse,
-    VAFx = VAFx 
+    VAFx = VAFx
   )
 
 # Group by the specified columns and compute mean of all others

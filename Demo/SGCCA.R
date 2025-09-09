@@ -16,15 +16,15 @@ source("~/BEP-Project-CEC-PLS-SEM/Scripts/SGCCA_Functions.R")
 
 # Load simulation info
 load("~/BEP-Project-CEC-PLS-SEM/Scripts/Data-R-W-Sparse/Info_simulation.RData")
-Info_matrix <- Infor_simulation$design_matrix_replication
-Ndatasets <- Infor_simulation$n_data_sets
+Info_matrix <- Info_simulation$design_matrix_replication
+Ndatasets <- Info_simulation$n_data_sets
 
 results_list <- list()
 
 for (i in 1:Ndatasets) {
 
   # Load data file
-  filename <- paste0("~/BEP-Project-CEC-PLS-SEM/Scripts/DATA-R-P-Sparse/Psparse", i, ".RData")
+  filename <- paste0("~/BEP-Project-CEC-PLS-SEM/Scripts/DATA-R-W-Sparse/Wsparse", i, ".RData")
   load(filename) 
   
   # Extract true data
@@ -64,7 +64,7 @@ for (i in 1:Ndatasets) {
     fit_sgcca <- rgcca(
       blocks = blocks,
       method = "sgcca",
-      sparsity = as.numeric(conditions[3]),
+      sparsity = as.numeric(conditions[3])*sqrt(n_vars),
       superblock = FALSE,
       ncomp = R,
       scheme = "factorial",
@@ -74,9 +74,9 @@ for (i in 1:Ndatasets) {
   }
   
   # Extract weights
-  estimatedW <- matrix(0, ncol = R, nrow = n_vars)
+  estimatedW <- matrix(0, ncol = R, nrow = J)
   block_weights <- fit_sgcca$a$bl1
-  
+
   # SGCCA sometimes drops variables that are fully zero so you need to reconstruct the weights matrix
   if (is.null(rownames(block_weights))) {
     if (is.vector(block_weights)) {
@@ -87,17 +87,16 @@ for (i in 1:Ndatasets) {
   } else {
     # Extract row indices from block_weights row names like "V1_10"
     row_indices <- as.integer(sub("V1_", "", rownames(block_weights)))
-    
+
     # Number of columns in block_weights
     n_col_bw <- ncol(block_weights)
-    
+
     # Assign block_weights into estimatedW by row index and column index
     for (l in seq_along(row_indices)) {
       row_idx <- row_indices[l]
       estimatedW[row_idx, 1:n_col_bw] <- block_weights[l, ]
     }
   }
-  
   
   # Calculate Scores and loadings 
   T_scores <- X%*%estimatedW
@@ -125,18 +124,17 @@ for (i in 1:Ndatasets) {
   # Bias-variance-MSE
   bias_var_mse <- compute_bias_variance_mse(W_true, estimatedW)
   
-  # Explained variance per component
-  expl_var <- explained_variance(X, T_scores)
-  
   # Sparsity
   sparsity <- sparsity_level(estimatedW)
+  # Reconstruction and selection metrics
+  bias_var_mse_W <- compute_bias_variance_mse(W_true, estimatedW)
+  bias_var_mse_P <- compute_bias_variance_mse(P_true, P_estimated)
   
-  # AVE and CR scores
-  AVE_scores <- compute_AVE(X, T_scores)
-  CR_scores <- compute_CR(X, T_scores)
+  #VAF
+  vaf = compute_vaf(X, estimatedW, P_estimated)
   
-  # Fornell-Larcker
-  FL_values <- compute_fornell_larcker_values(X, T_scores)
+  # Correlation comp 1 and comp 2
+  inter_comp_corr <- cor(T_scores)[1, 2]
   
   # Save results for this dataset
   results_list[[i]] <- data.frame(
@@ -174,25 +172,19 @@ for (i in 1:Ndatasets) {
     Recovery = selection_eval$recovery,
     
     # Bias, variance, mse weights
-    Bias = bias_var_mse$bias,
-    Variance = bias_var_mse$variance,
-    MSE_Weights = bias_var_mse$mse,
+    Bias_W = bias_var_mse_W$bias,
+    Variance_W = bias_var_mse_W$variance,
+    MSE_W = bias_var_mse_W$mse,
+    Bias_P = bias_var_mse_P$bias,
+    Variance_P = bias_var_mse_P$variance,
+    MSE_P = bias_var_mse_P$mse,
     
-    # Explained variance components
-    Explained_Var1 = expl_var[1],
-    Explained_Var2 = ifelse(length(expl_var) >= 2, expl_var[2], NA),
+    #Vaf and corr
+    VAF = vaf,
+    Correlation_Comp1_Comp2 = inter_comp_corr,
     
-    Sparsity = sparsity,
+    Sparsity = sparsity
     
-    AVE1 = AVE_scores$AVE[1],
-    CR1 = CR_scores[1],
-    AVE2 = ifelse(length(AVE_scores$AVE) >= 2, AVE_scores$AVE[2], NA),
-    AVE_zero = AVE_scores$num_zero_variance_columns,
-    CR2 = ifelse(length(CR_scores) >= 2, CR_scores[2], NA),
-    
-    Comp1_sqrtAVE = FL_values$Comp1_sqrtAVE,
-    Comp2_sqrtAVE = FL_values$Comp2_sqrtAVE,
-    Correlation_Comp1_Comp2 = FL_values$Correlation_Comp1_Comp2
   )
   cat("Dataset", i, "completed with best loss =", best_loss, "\n")
 }
@@ -205,7 +197,7 @@ results_table <- results_table %>%
   mutate(
     n_variables = n_variables,
     s_size = s_size,
-    n_components = n_components,
+    n_components = Num_Latent,
     p_sparse = p_sparse,
     VAFx = VAFx
   )
@@ -213,10 +205,10 @@ results_table <- results_table %>%
 # Group by the specified columns and compute mean of all others
 summary_table <- results_table %>%
   select(-Dataset) %>%
-  group_by(n_variables,n_components,s_size, p_sparse, VAFx) %>%
+  group_by(n_variables,Num_Latent,s_size, p_sparse, VAFx) %>%
   summarise(across(everything(), mean, na.rm = TRUE), .groups = "drop")
 
 # View or save result
 print(summary_table)
-write.csv(summary_table, "SGGCA_P_Sparse.csv", row.names = FALSE)
+write.csv(summary_table, "SGGCA_W_Sparse.csv", row.names = FALSE)
 

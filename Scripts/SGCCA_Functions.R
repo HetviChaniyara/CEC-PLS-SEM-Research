@@ -67,13 +67,6 @@ compute_bias_variance_mse <- function(W_true, W_est) {
   return(list(bias = bias, variance = variance, mse = mse))
 }
 
-explained_variance <- function(X, T_scores) {
-  
-  # Compute variance explained by T scores in comparison to total variance in X
-  total_var <- sum(apply(X, 2, var))
-  comp_vars <- apply(T_scores, 2, var)
-  return(comp_vars / total_var)
-}
 
 sparsity_level <- function(W) {
   
@@ -83,68 +76,13 @@ sparsity_level <- function(W) {
   return(zero_elements / total_elements)
 }
 
-compute_AVE <- function(X, T_scores) {
-  
-  # Compute AVE
-  R <- ncol(T_scores)
-  AVEs <- numeric(R)
-  
-  # Identify zero variance columns
-  zero_var_cols <- apply(X, 2, sd) == 0
-  num_zero_cols <- sum(zero_var_cols)
-  
-  # Remove zero variance columns from X
-  X_filtered <- X[, !zero_var_cols, drop = FALSE]
-  
-  for (r in 1:R) {
-    correlations <- cor(X_filtered, T_scores[, r])
-    loadings_squared <- correlations^2
-    AVEs[r] <- mean(loadings_squared)
-  }
-  
-  return(list(
-    AVE = AVEs,
-    num_zero_variance_columns = num_zero_cols
-  ))
-}
-
-
-compute_CR <- function(X, T_scores) {
-  
-  # Compute Composite Reliability
-  R <- ncol(T_scores)
-  CRs <- numeric(R)
-  
-  # Identify columns with non-zero variance
-  nonzero_var_cols <- apply(X, 2, sd) != 0
-  X_filtered <- X[, nonzero_var_cols, drop = FALSE]
-  
-  for (r in 1:R) {
-    correlations <- cor(X_filtered, T_scores[, r])
-    loadings_squared <- correlations^2
-    sum_loadings <- sum(correlations)
-    numerator <- sum_loadings^2
-    denominator <- numerator + sum(1 - loadings_squared)
-    CRs[r] <- numerator / denominator
-  }
-  
-  return(CRs)
-}
-
-compute_fornell_larcker_values <- function(X, T_scores) {
-  
-  # Computes Fornell-Larcker
-  AVE_result <- compute_AVE(X, T_scores)
-  AVEs <- AVE_result$AVE
-  inter_corr <- cor(T_scores)[1, 2]  # correlation between Comp1 and Comp2
-  
-  values <- list(
-    Comp1_sqrtAVE = sqrt(AVEs[1]),
-    Comp2_sqrtAVE = sqrt(AVEs[2]),
-    Correlation_Comp1_Comp2 = inter_corr
-  )
-  
-  return(values)
+compute_vaf <- function(X, W, P) {
+  # Variance Accounted For calculation
+  X_hat <- X %*% W %*% t(P)
+  sum_sq_error <- sum((X - X_hat)^2)
+  total_variance <- sum(X^2)
+  vaf <- 1 - (sum_sq_error / total_variance)
+  return(vaf)
 }
 
 

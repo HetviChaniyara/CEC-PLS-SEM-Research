@@ -6,9 +6,9 @@ current_working_dir <- dirname(rstudioapi::getActiveDocumentContext()$path)
 setwd(current_working_dir)
 getwd()
 
-# install.packages("MASS") 
-# install.packages("gtools") 
-# install.packages("dplyr") 
+# install.packages("MASS")
+# install.packages("gtools")
+# install.packages("dplyr")
 library(MASS)
 library(gtools)
 library(dplyr)
@@ -16,13 +16,13 @@ library(dplyr)
 # Load functions from functions file
 source("~/BEP-Project-CEC-PLS-SEM/Scripts/CEC_PLS_SEM_Functions.R")
 
-n_multistarts <- 1 # Change for more multistarts
+n_multistarts <- 3 # Change for more multistarts
 base_seed <- 100
 
 # Load the design Matrix
-load("~/BEP-Project-CEC-PLS-SEM/Scripts/Data-R-W-Sparse/Info_simulation.RData") # Contains design information
-Infor_matrix <- Infor_simulation$design_matrix_replication
-Ndatasets <- Infor_simulation$n_data_sets
+load("~/BEP-Project-CEC-PLS-SEM/Scripts/Data-R-P-Sparse/Info_simulation.RData")
+Info_matrix <- Info_simulation$design_matrix_replication
+Ndatasets <- Info_simulation$n_data_sets
 
 # Initalize list to get results
 results_list <- list()
@@ -31,31 +31,33 @@ results_list <- list()
 for (i in 1:Ndatasets) {
   
   # load the data folder
-  filename <- paste0("~/BEP-Project-CEC-PLS-SEM/Scripts/DATA-R-P-Sparse/Psparse", i, ".RData") # Change Data directory to W sparse 
+  filename <- paste0("~/BEP-Project-CEC-PLS-SEM/Scripts/Data-R-P-Sparse/Psparse", i, ".RData") # Change data directory accordingly
   load(filename)
-
+  
   # Extract true data
   X <- out$X
   W_true <- out$W
   P_true <- out$P
   T_true <- out$Z
   R <- dim(W_true)[2]
-  conditions <- Infor_matrix[i, ]
+  conditions <- Info_matrix[i, ]
   phi <- as.numeric((1 - conditions[3]) * dim(X)[2])
-
+  rho <- 0.5
+  
   # Multistart implementation
   best_result <- NULL
   best_loss <- Inf
   
   for (m in 1:n_multistarts) {
-    set.seed(base_seed + m)  # optional for reproducibility
-    result <- CEC_PLS_SEM(X, R, epsilon = 1e-6, phi)
+    set.seed(base_seed + m) # For reproducibility
+    result <- CEC_PLS_SEM(X, R, epsilon = 1e-5, phi, rho)
     
     if (result$Residual < best_loss) {
       best_loss <- result$Residual
       best_result <- result
     }
   }
+  
   
   # Align estimated matrices
   aligned_weights <- align_components(best_result$weights, W_true)
@@ -67,19 +69,20 @@ for (i in 1:Ndatasets) {
   sim_p_est_p_true <- score_metrics(aligned_loadings, P_true)
   sim_scores_true <- score_metrics(aligned_T, T_true)
   sim_weights_loadings <- score_metrics(best_result$weights, t(best_result$loadings))
-
   
-  # Reconstruction, AVE/CR, and selection metrics
-  bias_var_mse <- compute_bias_variance_mse(W_true, best_result$weights)
-  expl_var <- explained_variance(X, best_result$Scores)
-  sparsity <- sparsity_level(best_result$weights)
-  AVE_scores <- compute_AVE(X, best_result$Scores)
-  CR_scores <- compute_CR(X, best_result$Scores)
-  FL_values <- compute_fornell_larcker_values(X, best_result$Scores)
   
+  # Reconstruction and selection metrics
+  bias_var_mse_W <- compute_bias_variance_mse(W_true, aligned_weights)
   recon_metrics <- reconstruction_metrics(X, best_result$weights, best_result$loadings)
   selection_eval <- evaluate_variable_selection(W_true, best_result$weights)
-    
+  bias_var_mse_P <- compute_bias_variance_mse(P_true, aligned_loadings)
+  
+  #VAF
+  vaf = compute_vaf(X, best_result$weights, best_result$loadings)
+  
+  # Correlation comp 1 and comp 2
+  inter_comp_corr <- cor(aligned_T)[1, 2]
+  
   # Store all results in consistent format
   results_list[[i]] <- data.frame(
     Dataset = i,
@@ -91,8 +94,7 @@ for (i in 1:Ndatasets) {
     Final_Loss = best_result$Residual,
     Num_Iterations = best_result$n_iterations,
     
-    
-    # Similarity metrics)
+    # Similarity metrics
     P_vs_Ptrue_MAE = sim_p_est_p_true$mae,
     P_vs_Ptrue_RMSE = sim_p_est_p_true$rmse,
     P_vs_Ptrue_Corr = sim_p_est_p_true$correlation,
@@ -120,41 +122,31 @@ for (i in 1:Ndatasets) {
     Recovery = selection_eval$recovery,
     
     # Bias-variance-MSE
-    Bias = bias_var_mse$bias,
-    Variance = bias_var_mse$variance,
-    MSE_Weights = bias_var_mse$mse,
+    Bias_W = bias_var_mse_W$bias,
+    Variance_W = bias_var_mse_W$variance,
+    MSE_W = bias_var_mse_W$mse,
+    Bias_P = bias_var_mse_P$bias,
+    Variance_P = bias_var_mse_P$variance,
+    MSE_P = bias_var_mse_P$mse,
     
-    # Other
-    Explained_Var1 = expl_var[1],
-    Explained_Var2 = ifelse(length(expl_var) >= 2, expl_var[2], NA),
-    Sparsity = sparsity,
-    AVE1 = AVE_scores$AVE[1],
-    CR1 = CR_scores[1],
-    AVE2 = ifelse(length(AVE_scores) >= 2, AVE_scores$AVE[2], NA),
-    AVE_zero = AVE_scores$num_zero_variance_columns,
-    CR2 = ifelse(length(CR_scores) >= 2, CR_scores[2], NA),
-    Comp1_sqrtAVE = FL_values$Comp1_sqrtAVE,
-    Comp2_sqrtAVE = FL_values$Comp2_sqrtAVE,
-    Correlation_Comp1_Comp2 = FL_values$Correlation_Comp1_Comp2
+    #Vaf and corr
+    VAF = vaf,
+    Correlation_Comp1_Comp2 = inter_comp_corr
   )
   cat("Dataset", i, "completed with best loss =", best_result$Residual, "\n")
 }
 
 # Collect all results in a dataframe
 results_table <- do.call(rbind, results_list)
-#write.csv(results_table, "check_P_CECPLSSEM.csv", row.names = FALSE)
-#results_table
-
 
 # Average of the 5 iteration for each condition
-
 results_table <- results_table %>%
   mutate(
     n_variables = n_variables,
     s_size = s_size,
     n_components = n_components,
     p_sparse = p_sparse,
-    VAFx = VAFx 
+    VAFx = VAFx 
   )
 
 # Group by the specified columns and compute mean of all others
@@ -165,5 +157,4 @@ summary_table <- results_table %>%
 
 # Save and view table
 print(summary_table)
-write.csv(summary_table, "check_P_CECPLSSEM_FINAL.csv", row.names = FALSE)
-
+write.csv(summary_table, "CECPLSSEM-Psparse-final.csv", row.names = FALSE)

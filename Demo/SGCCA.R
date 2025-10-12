@@ -15,7 +15,7 @@ library(dplyr)
 source("~/BEP-Project-CEC-PLS-SEM/Scripts/SGCCA_Functions.R")
 
 # Load simulation info
-load("~/BEP-Project-CEC-PLS-SEM/Scripts/Data-R-W-Sparse/Info_simulation.RData")
+load("~/BEP-Project-CEC-PLS-SEM/Scripts/Data-R-P-Sparse-W-not-P/Info_simulation.RData")
 Info_matrix <- Info_simulation$design_matrix_replication
 Ndatasets <- Info_simulation$n_data_sets
 
@@ -24,7 +24,7 @@ results_list <- list()
 for (i in 1:Ndatasets) {
 
   # Load data file
-  filename <- paste0("~/BEP-Project-CEC-PLS-SEM/Scripts/DATA-R-W-Sparse/Wsparse", i, ".RData")
+  filename <- paste0("~/BEP-Project-CEC-PLS-SEM/Scripts/DATA-R-P-Sparse-W-not-P/Psparse", i, ".RData")
   load(filename) 
   
   # Extract true data
@@ -210,5 +210,5 @@ summary_table <- results_table %>%
 
 # View or save result
 print(summary_table)
-write.csv(summary_table, "SGGCA_W_Sparse.csv", row.names = FALSE)
+write.csv(summary_table, "SGGCA_P_Sparse_W_not_P.csv", row.names = FALSE)
 

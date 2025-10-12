@@ -101,13 +101,13 @@ Initialize_parameters <- function(X, R, rho) {
   # Random components
   W_rand <- matrix(rnorm(length(W_svd), mean = 0, sd = 1), nrow = nrow(W_svd))
   P_rand <- matrix(rnorm(length(P_svd), mean = 0, sd = 1), nrow = nrow(P_svd))
-  
+   
   # Weighted combination: 0.7 * SVD + 0.3 * random
   W0 <- 0.7*W_svd + 0.3*W_rand
   P0_T <- 0.7*P_svd + 0.3*P_rand
   
   U <- matrix(0, nrow = J, ncol = R) # Initialize to 0
-  # rho <- rho # Penalty parameter
+  rho <- rho # Penalty parameter
   alpha <- max(eigen(t(X) %*% X)$values) # max eigenvalue of X^TX
   
   return(list(W0 = W0, P0_T = P0_T, U = U, rho = rho, alpha = alpha))

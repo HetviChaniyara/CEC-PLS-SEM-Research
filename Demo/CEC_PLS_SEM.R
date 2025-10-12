@@ -20,7 +20,7 @@ n_multistarts <- 3 # Change for more multistarts
 base_seed <- 100
 
 # Load the design Matrix
-load("~/BEP-Project-CEC-PLS-SEM/Scripts/Data-R-P-Sparse/Info_simulation.RData")
+load("~/BEP-Project-CEC-PLS-SEM/Scripts/Data-R-P-Sparse-W-not-P/Info_simulation.RData")
 Info_matrix <- Info_simulation$design_matrix_replication
 Ndatasets <- Info_simulation$n_data_sets
 
@@ -31,7 +31,7 @@ results_list <- list()
 for (i in 1:Ndatasets) {
   
   # load the data folder
-  filename <- paste0("~/BEP-Project-CEC-PLS-SEM/Scripts/Data-R-P-Sparse/Psparse", i, ".RData") # Change data directory accordingly
+  filename <- paste0("~/BEP-Project-CEC-PLS-SEM/Scripts/Data-R-P-Sparse-W-not-P/Psparse", i, ".RData") # Change data directory accordingly
   load(filename)
   
   # Extract true data
@@ -78,10 +78,13 @@ for (i in 1:Ndatasets) {
   bias_var_mse_P <- compute_bias_variance_mse(P_true, aligned_loadings)
   
   #VAF
-  vaf = compute_vaf(X, best_result$weights, best_result$loadings)
+  vaf <- compute_vaf(X, best_result$weights, best_result$loadings)
   
   # Correlation comp 1 and comp 2
   inter_comp_corr <- cor(aligned_T)[1, 2]
+  
+  # Sparsity
+  sparsity <- sparsity_level(best_result$weights)
   
   # Store all results in consistent format
   results_list[[i]] <- data.frame(
@@ -120,6 +123,7 @@ for (i in 1:Ndatasets) {
     Recall = selection_eval$recall,
     F1_Score = selection_eval$f1,
     Recovery = selection_eval$recovery,
+    Sparsity = sparsity,
     
     # Bias-variance-MSE
     Bias_W = bias_var_mse_W$bias,
@@ -157,4 +161,4 @@ summary_table <- results_table %>%
 
 # Save and view table
 print(summary_table)
-write.csv(summary_table, "CECPLSSEM-Psparse-final.csv", row.names = FALSE)
+write.csv(summary_table, "CECPLSSEM-Psparse-W-not-P.csv", row.names = FALSE)

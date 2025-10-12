@@ -64,7 +64,7 @@ for (i in 1:Ndatasets) {
     fit_sgcca <- rgcca(
       blocks = blocks,
       method = "sgcca",
-      sparsity = as.numeric(conditions[3])*sqrt(n_vars),
+      sparsity = as.numeric(conditions[3]),
       superblock = FALSE,
       ncomp = R,
       scheme = "factorial",

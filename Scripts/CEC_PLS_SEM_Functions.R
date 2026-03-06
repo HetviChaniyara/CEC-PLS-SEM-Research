@@ -1,31 +1,53 @@
 # Cardinality and Equality Constrained PlS-SEM
 # Hetvi Chaniyara
 # Bachelor End Project
+#Revised version December 2025 by Katrijn
+#Focused on (checking) convergence and computational efficiency
+#Implementation allows two variants:
+#1. Constrained approach
+#min(W,P) ||X-XWP'||^2 s.t. Card(W) = K and P=W
+#2. Penalized approach
+#min(W,P) ||X-XWP'||^2 + rho/2||W-P||^2  s.t. Card(W) = K
+#This is achieved by reformulating the objective to
+#min(W,P,(U)) ||X-XWP'||^2 + rho/2||W-P+U||^2-rho/2||U||^2 s.t. Card(W) = K
+#and fixing U to 0 or not
 
-current_working_dir <- dirname(rstudioapi::getActiveDocumentContext()$path)
-setwd(current_working_dir)
-getwd()
-
-# install.packages("MASS")
 library(MASS)
 library(gtools)
 
-# CEC-PLS-SEM Full Update Procedure
-CEC_PLS_SEM <-function(X, R, epsilon, phi,rho){
+#############
+
+#' CEC-PLS-SEM
+#'
+#' @param X data of size IxJ
+#' @param R number of components
+#' @param epsilon tolerance for convergence
+#' @param phi number of nonzero weights
+#' @param rho penalty tuning parameter
+#' @param constrained 1/0 for constrained versus penalized setting (W=P)
+#'
+#' @returns Component weights and loadings
+#' @export
+#'
+#' @examples
+CEC_PLS_SEM <-function(X, R, epsilon, phi,rho, constrained, MaxIter){
   
   J = dim(X)[2] # number of columns
   I = dim(X)[1] # number of rows
+  ssx <- sum(X^2)  #caching
+  XtX <- t(X)%*%X  #caching
   iter <- 0
   convAO <- 0
-  MaxIter <- 250 # Change accordingly
   
   # Get initialized parameters
-  params <- Initialize_parameters(X,R,rho)
-  W <- params$W0
-  P_T <- params$P0_T
-  U <- params$U
-  rho <- params$rho
+  params <- Initialize_parameters(X,R,phi)
   alpha <- params$alpha
+  W <- params$W0
+  if (constrained==1){
+    U <- params$U
+  } else {
+    U <- matrix(0,nrow = J, ncol = R)
+  }
   
   # Initialize matrices and lists
   T_scores <- matrix(nrow = I, ncol = R)
@@ -34,24 +56,51 @@ CEC_PLS_SEM <-function(X, R, epsilon, phi,rho){
   
   # Update Loop
   while (convAO == 0) {
+    Wold <- W #Wold needed for secondary residual
     
     # Update component scores
     T_scores <- X%*%W
     
     # Update loadings
-    P_T = compute_P_new_T(X,W,T_scores,U,rho)
-    
-    # Compute b
-    b <- compute_b(X,W,P_T, alpha)
+    P = compute_P_new(X,W,T_scores,U,rho,R)
+    LossuP <- loss_function(X,W,P,rho,U)/ssx
+    ####
+    message('Update P: Diff loss ', Lossc-LossuP)
+    ####
     
     # Update weights
-    W <- compute_w_new(X, R, P_T, b, alpha, rho, U, phi)
+    eigenp <- eigen(t(P)%*%P)
+    alpha_c <- alpha*eigenp$values[1] # learning step
+    for (i in 1:4){#MM iterative procedure
+      # Compute B
+      B <- compute_B(X,W,P, alpha_c, XtX)
+      # Compute W
+      W <- compute_W_new(X, R, P, B, alpha_c, rho, U, phi)
+      LossuW <- loss_function(X,W,P,rho,U)/ssx
+      ####
+      message('Update W: Diff loss ', LossuP-LossuW)
+      LossuP <- LossuW
+      ####
+    }
     
     # Update scaled variable
-    U <- compute_U(U, W, P_T, rho)
+    if (constrained==1){
+      U <- compute_U(U, W, P, rho)
+      ####
+      LossuU <- loss_function(X,W,P,rho,U)/ssx
+      message('Update U: Diff loss ', LossuW-LossuU)
+      LossuP <- LossuU
+      ####
+    }
+    
+    #primary & secondary relative residuals
+    r1 <- sum((W-P)^2)/sum(W^2)
+    r2 <- sum((W-Wold)^2)/sum(U^2)
+    message('Primary relative residual:  ', r1)
+    message('Secondary relative residual:  ', r2)
     
     # Calculate loss
-    Lossu <- loss_function(X,W,P_T,rho,U)
+    Lossu <- loss_function(X,W,P,rho,U)/ssx
     Lossvec <- c(Lossvec,Lossu)
     
     #Check for convergence or if maximum iterations are reached
@@ -59,12 +108,6 @@ CEC_PLS_SEM <-function(X, R, epsilon, phi,rho){
       convAO <- 1
       cat("Maxiter")
     }
-    
-    # Absolute Stopping Criterion
-    # if (abs(Lossc-Lossu) < epsilon) {
-    #   convAO <- 1
-    #   cat("convergence")
-    # }
     
     # Relative Stopping Criterion
     relative_change <- (abs(Lossu - Lossc)) / abs(Lossc)
@@ -79,41 +122,36 @@ CEC_PLS_SEM <-function(X, R, epsilon, phi,rho){
     Lossc <- Lossu
   }
   
-  results <- list('weights' = W, 'loadings' = P_T, 'Lossvec' = Lossvec, 'Residual' = Lossu, 'Scores'= T_scores, 'n_iterations'= iter)
+  results <- list('weights' = W, 'loadings' = P, 'Lossvec' = Lossvec, 'Residual' = Lossu, 'Scores'= T_scores, 'n_iterations'= iter)
   return(results)
 }
 
 ########################################################################################################################################
 # Helper Functions
 
-Initialize_parameters <- function(X, R, rho) {
+#Initialize_parameters <- function(X, R, rho) {
+Initialize_parameters <- function(X, R, phi) {
   
   J <- dim(X)[2] # number of columns
   I <- dim(X)[1] # number of rows
   svd_X <- svd(X)
-  
-  # SVD-based components
   W_svd <- svd_X$v[, 1:R]
-  P_svd <- t(svd_X$u[, 1:R])
-  # W0 <- W_svd
-  # P0_T <- P_svd
+  alpha <- svd_X$d[1]^2 # max eigenvalue of X^TX, more efficient
   
-  # Random components
-  W_rand <- matrix(rnorm(length(W_svd), mean = 0, sd = 1), nrow = nrow(W_svd))
-  P_rand <- matrix(rnorm(length(P_svd), mean = 0, sd = 1), nrow = nrow(P_svd))
-   
+  # Random components: note sum of sq. W from svd =1
+  W_rand <- matrix(rnorm(length(W_svd), mean = 0, sd = 1/sqrt(J)), nrow = nrow(W_svd))
+  
   # Weighted combination: 0.7 * SVD + 0.3 * random
-  W0 <- 0.7*W_svd + 0.3*W_rand
-  P0_T <- 0.7*P_svd + 0.3*P_rand
+  W0 <- 0.97*W_svd + 0.03*W_rand
+  Wind <- order(W0)
+  W0[Wind[1:(J*R-phi)]] <- 0
   
   U <- matrix(0, nrow = J, ncol = R) # Initialize to 0
-  rho <- rho # Penalty parameter
-  alpha <- max(eigen(t(X) %*% X)$values) # max eigenvalue of X^TX
   
-  return(list(W0 = W0, P0_T = P0_T, U = U, rho = rho, alpha = alpha))
+  return(list(W0 = W0, U = U, alpha = alpha))
 }
 
-compute_P_new_T <- function(X, W, T_scores, U, rho) {
+compute_P_new <- function(X, W, T_scores, U, rho, R) {
   
   # Calculate X^T XW
   XtXW <- t(X) %*% T_scores
@@ -125,103 +163,61 @@ compute_P_new_T <- function(X, W, T_scores, U, rho) {
   term1 <- 2 * XtXW + regularization_term
   
   # Calculate (2 * W^T X^T X W + rho * I)
-  I <- diag(ncol(W)) # Identity matrix with size equal to number of columns of W
-  term2 <- 2 *((t(W) %*% t(X) %*% T_scores) + (rho * I))
+  I <- diag(R) 
+  term2 <- 2 *(t(T_scores) %*% T_scores) + (rho * I)#! factor 2
   
   # Inverse of term2
-  term2_inv <- ginv(term2)
+  term2_inv <- solve(term2)#instead of ginv as this is a well defined problem
   
   # Multiply term1 by the inverse of term2
-  result <- term1 %*% term2_inv
+  P_new <- term1 %*% term2_inv
   
-  # Transpose the result to get P_new^T
-  P_new_T <- t(result)
-  
-  return(P_new_T)
+  return(P_new)
 }
 
-compute_b <- function(X,W_old,P_T, alpha){
-  # Method using Kronecker Product
-  
-  # # Vectorized form of W and X
-  # vec_W = as.vector(W_old)
-  # vec_X = as.vector(X)
-  # P = t(P_T)
-  #
-  # # P kronecker X
-  # PX_kron = kronecker(P, X)
-  #
-  # # Compute: PX_kron^T*PX_kron*vec(W)
-  # term1 = t(PX_kron) %*% PX_kron %*% vec_W
-  #
-  # # PX_kron^T *vec(X)
-  # term2 = t(PX_kron) %*% vec_X
-  #
-  # # Subtract term2 from term 1 and dividing by alpha
-  # term3 = term1 - term2
-  # term4 = term3/alpha
-  #
-  # # Subtract vec_W - term 4
-  # b = vec_W - term4
-  
-  ########################
-  # Simplified Method Using Kornecker Product Properties
-  
-  vec_W = as.vector(W_old)
-  P = t(P_T)
-  XTX = t(X) %*% X
-  
+compute_B <- function(X,W,P, alpha,XTX){
   # Compute: PX_kron^T*PX_kron*vec(W) by identity = vec(X^TXWP_TP)
-  term1 = as.vector(XTX %*% W_old %*% P_T %*% P)
+  term1 = (XTX %*% W %*% t(P) %*% P)
   
   # PX_kron^T *vec(X)
-  term2 = as.vector(XTX %*% P)
+  term2 = (XTX %*% P)
   
   # Subtract term2 from term 1 and dividing by alpha
   term3 = term1 - term2
   term4 = term3/alpha
+  
   # Subtract vec_W - term 4
-  b = vec_W - term4
+  B = W - term4
   
-  return(b)
-  
+  return(B)
 }
 
-compute_w_new <- function(X, R, P_T, b, alpha, rho, U, phi_prop) {
+compute_W_new <- function(X, R, P, B, alpha, rho, U, phi_prop) {
   
-  vec_P <- as.vector(t(P_T)) # Flatten P_T row-wise
-  W_new_vec <- (2 * alpha * as.vector(b) + rho * (vec_P - as.vector(U))) / (2 * alpha + rho)
-  J <- dim(X)[2]
-  W_new_matrix <- matrix(W_new_vec, nrow = J, ncol = R) # Reconstruct into a matrix
-  
+  W_new <- ((2 * alpha * B) + rho * (P - U)) / (2 * alpha + rho)
   # Coefficients with smallest bjr^2 + (Ujr-Pjr)^2 set to 0
-  for (r in 1:R) {
-    b_col <- matrix(b, nrow = J, ncol = R)[, r]
-    U_col <- matrix(U, nrow = J, ncol = R)[, r]
-    P_col <- t(P_T)[, r]
-    importance_scores <- (b_col)^2 + (U_col - P_col)^2
-    sorted_indices <- order(importance_scores, decreasing = TRUE)
-    mask <- rep(0, J)
-    mask[sorted_indices[1:phi_prop]] <- 1
-    W_new_matrix[, r] <- W_new_matrix[, r] * mask
-  }
+  term1 <- alpha*(B^2)
+  term2 <- 0.5*rho*((U-P)^2)
+  impind <- order(term1+term2,decreasing = FALSE)
+  W_new[impind[1:(J*R-phi)]] <- 0
   
-  return(W_new_matrix)
+  return(W_new)
 }
 
-compute_U <- function(U,W,P_T,rho){
+compute_U <- function(U,W,P,rho){
   
-  # Update U
-  U_new <- U + rho*(W- t(P_T))
+  # Update U - without rho
+  U_new <- U + (W- P)
   
   return(U_new)
 }
 
-loss_function <-function(X,W,P_T,rho,U){
-  
+loss_function <-function(X,W,P,rho,U){
   # Loss function
-  total_loss <- sum((X - X %*% W %*% P_T)^2)
-  
+  term1 <- sum((X - X %*% W %*% t(P))^2)
+  term2 <- (rho/2)*sum((W-P+U)^2)
+  term3 <- (rho/2)*sum(U^2)
+  total_loss <- term1+term2-term3
   return(total_loss)
 }
 
@@ -247,10 +243,10 @@ evaluate_variable_selection <- function(W_true, W_estimated) {
   return(list(precision = precision,recall = recall,f1 = f1_score,recovery = accuracy))
 }
 
-reconstruction_metrics <- function(X, W, P_T) {
+reconstruction_metrics <- function(X, W, P) {
   
   # Reconstruction Metrics
-  X_hat <- X %*% W %*% P_T
+  X_hat <- X %*% W %*% t(P)
   error_matrix <- X - X_hat
   mse <- mean(error_matrix^2)
   var_explained <- 1 - (sum(error_matrix^2) / sum((X - mean(X))^2))
@@ -270,7 +266,6 @@ score_metrics <- function(est, true) {
 }
 
 align_components <- function(est, true) {
-  
   # Try combinations to see which estimated composite is corresponding one in the true matrix
   n_comp <- ncol(true)
   perm <- permutations(n_comp, n_comp)
@@ -282,22 +277,24 @@ align_components <- function(est, true) {
   for (i in 1:nrow(perm)) {
     aligned_est <- est[, perm[i, ]]
     
-    # Flip signs for best match
     for (j in 1:n_comp) {
-      if (cor(aligned_est[, j], true[, j]) < 0) {
+      correlation_val <- cor(aligned_est[, j], true[, j])
+      
+      # check if corr is NA 
+    if (!is.na(correlation_val) && correlation_val < 0) {
         aligned_est[, j] <- -aligned_est[, j]
       }
     }
     
-    score <- sum((aligned_est - true)^2) # total squared error
+    score <- sum((aligned_est - true)^2)
     if (score < best_score) {
       best_score <- score
       best_perm <- aligned_est
     }
   }
-  
   return(best_perm)
 }
+
 
 
 compute_bias_variance_mse <- function(W_true, W_est) {
@@ -320,11 +317,14 @@ sparsity_level <- function(W) {
   return(zero_elements / total_elements)
 }
 
-compute_vaf <- function(X, W, P_T) {
+compute_vaf <- function(X, W, P) {
   # Variance Accounted For calculation
-  X_hat <- X %*% W %*% P_T
+  X_hat <- X %*% W %*% t(P)
   sum_sq_error <- sum((X - X_hat)^2)
   total_variance <- sum(X^2)
   vaf <- 1 - (sum_sq_error / total_variance)
   return(vaf)
 }
+
+
+

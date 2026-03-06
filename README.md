@@ -1,4 +1,4 @@
-# BEP-Project-CEC-PLS-SEM
+# CEC-PLS-SEM
 
 ## Description
 

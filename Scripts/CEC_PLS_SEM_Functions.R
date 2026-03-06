@@ -194,40 +194,15 @@ compute_B <- function(X,W,P, alpha,XTX){
 
 compute_W_new <- function(X, R, P, B, alpha, rho, U, phi_prop) {
 
-W_new <- ((2 * alpha * B) + rho * (P - U)) / (2 * alpha + rho)
-# Coefficients with smallest bjr^2 + (Ujr-Pjr)^2 set to 0
-term1 <- alpha*(B^2)
-term2 <- 0.5*rho*((U-P)^2)
-impind <- order(term1+term2,decreasing = FALSE)
-W_new[impind[1:(J*R-phi)]] <- 0
-
-return(W_new)
+  W_new <- ((2 * alpha * B) + rho * (P - U)) / (2 * alpha + rho)
+  # Coefficients with smallest bjr^2 + (Ujr-Pjr)^2 set to 0
+  term1 <- alpha*(B^2)
+  term2 <- 0.5*rho*((U-P)^2)
+  impind <- order(term1+term2,decreasing = FALSE)
+  W_new[impind[1:(J*R-phi)]] <- 0
+  
+  return(W_new)
 }
-
-# compute_W_new <- function(X, R, P, B, alpha, rho, U, phi) {
-#   J <- nrow(B)
-#   W_new <- ((2 * alpha * B) + rho * (P - U)) / (2 * alpha + rho)
-#   
-#   # Calculate required non-zeros per component (column-wise sparsity)
-#   phi_per_comp <- round(phi / R)
-#   
-#   for (r in 1:R) {
-#     # Calculate importance for the specific component r
-#     term1 <- alpha * (B[, r]^2)
-#     term2 <- 0.5 * rho * ((U[, r] - P[, r])^2)
-#     combined_importance <- term1 + term2
-#     
-#     # Identify indices to zero out for this component specifically
-#     n_to_zero <- J - phi_per_comp
-#     if (n_to_zero > 0) {
-#       # Sort by importance and zero out the smallest values
-#       zero_indices <- order(combined_importance, decreasing = FALSE)[1:n_to_zero]
-#       W_new[zero_indices, r] <- 0
-#     }
-#   }
-#   
-#   return(W_new)
-# }
 
 compute_U <- function(U,W,P,rho){
   

@@ -38,7 +38,11 @@ for (f in folders) {
     
     # aligned components
     W_aligned <- align_components(enet_fit$loadings, out$W)
-    P_aligned <- W_aligned 
+    
+    # Calculate optimal P_aligned for the benchmark
+    # P = (X'Z)(Z'Z)^-1
+    Z_scores <- X %*% W_aligned
+    P_aligned <- t(X) %*% Z_scores %*% solve(t(Z_scores) %*% Z_scores)
     
     # metrics
     selection <- evaluate_variable_selection(out$W, W_aligned)

@@ -20,7 +20,7 @@ for (f in folders) {
   design <- Info_simulation$design_matrix_replication
   prefix <- ifelse(grepl("W-Sparse", f), "Wsparse", "Psparse")
   
-  for (i in 1:36) {
+  for (i in 1:180) {
     data_file <- file.path(f, paste0(prefix, i, ".RData"))
     if(!file.exists(data_file)) {
       cat("File missing:", data_file, "\n")
@@ -37,7 +37,8 @@ for (f in folders) {
     best_res <- NULL; best_loss <- Inf
     for (m in 1:2) {
       set.seed(100 + m)
-      res <- CEC_PLS_SEM(X, R, 1e-8, phi, rho, constrained=0, MaxIter=100)
+      # Change constrained to 0 or 1 here
+      res <- CEC_PLS_SEM(X, R, 1e-8, phi, rho, constrained=1, MaxIter=100)
       if (res$Residual < best_loss) { best_loss <- res$Residual; best_res <- res }
     }
     
@@ -46,7 +47,8 @@ for (f in folders) {
     P_aligned <- align_components(best_res$loadings, out$P)
     selection <- evaluate_variable_selection(out$W, W_aligned)
     bvm_W <- compute_bias_variance_mse(out$W, W_aligned)
-    bvm_P <- compute_bias_variance_mse(out$P, P_aligned) # Added for P comparison
+    bvm_P <- compute_bias_variance_mse(out$P, P_aligned) 
+    bvm_W_P <- compute_bias_variance_mse(W_aligned, P_aligned)
     
     results_list[[length(results_list)+1]] <- data.frame(
       Folder = f, 
@@ -56,10 +58,13 @@ for (f in folders) {
       VAF = compute_vaf(X, best_res$weights, best_res$loadings),
       Recovery_Rate = selection$recovery,
       MSE_W = bvm_W$mse,
-      MSE_P = bvm_P$mse, 
+      MSE_P = bvm_P$mse,
+      Bias_W = bvm_W$bias,
+      Bias_P = bvm_P$bias,
       W_Corr = diag(cor(W_aligned, out$W)) %>% mean(),
       P_Corr = diag(cor(P_aligned, out$P)) %>% mean(), 
-      Iterations = best_res$n_iterations
+      Iterations = best_res$n_iterations,
+      MSE_W_P = bvm_W_P$mse
     )
     cat("Folder:", f, "Dataset:", i, "Complete\n")
   }
@@ -70,4 +75,4 @@ final_summary <- do.call(rbind, results_list) %>%
   group_by(Folder, n_variables, s_size, p_sparse, VAFx) %>%
   summarise(across(where(is.numeric), mean, na.rm = TRUE), .groups = "drop")
 
-write.csv(final_summary, "Simulation_Results_Consolidated_penalised.csv", row.names = FALSE)
+write.csv(final_summary, "all_constrained.csv", row.names = FALSE)
